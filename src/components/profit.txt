@@ -1,0 +1,1368 @@
+
+import React, { useState, useEffect } from 'react';
+import { TrendingUp, Download, X, DollarSign, Package, User, Phone, Eye, ChevronLeft, ChevronRight, Calendar, Filter, RotateCcw } from 'lucide-react';
+import ReceiptButton from './ReceiptButton';
+import { SaleItem, CustomerDetails } from '../types';
+
+interface ProfitItem {
+  saleId: string;
+  productId: string;
+  productName: string;
+  customerName: string;
+  customerMobile: string;
+  soldPrice: number;
+  purchasePrice: number;
+  profit: number;
+  quantity: number;
+  totalProfit: number;
+  saleDate: string;
+  product?: any; // Full product details
+}
+
+interface ProfitProps {
+  soldProducts: any[];
+  products: any[];
+  purchases: any[];
+}
+
+const Profit: React.FC<ProfitProps> = ({ soldProducts, products, purchases }) => {
+  const [profitItems, setProfitItems] = useState<ProfitItem[]>([]);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedProfitItem, setSelectedProfitItem] = useState<ProfitItem | null>(null);
+  const [showFullDataModal, setShowFullDataModal] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
+
+  // New filter state
+  const [dateFilter, setDateFilter] = useState({
+    startDate: '',
+    endDate: '',
+    selectedMonth: '',
+    selectedYear: new Date().getFullYear().toString()
+  });
+  const [filteredProfitItems, setFilteredProfitItems] = useState<ProfitItem[]>([]);
+  const [filterType, setFilterType] = useState<'all' | 'month' | 'custom'>('all');
+
+  useEffect(() => {
+    calculateProfitItems();
+  }, [soldProducts, products, purchases]);
+
+  // New useEffect for filtering
+  useEffect(() => {
+    applyDateFilter();
+  }, [profitItems, dateFilter, filterType]);
+
+  const calculateProfitItems = () => {
+    const items: ProfitItem[] = soldProducts.map(soldItem => {
+      const product = products.find(p => p.id === soldItem.productId);
+      
+      // Find the most recent purchase price for this product from purchases.json
+      const productPurchases = purchases
+        .filter(purchase => purchase.productID === soldItem.productId)
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      
+      // Use the buypricePerUnit from the most recent purchase, or fallback to product data
+      const purchasePrice = productPurchases.length > 0 
+        ? productPurchases[0].buypricePerUnit 
+        : (product?.buypricePerUnit || 0);
+      
+      const soldPrice = soldItem.sellpricePerUnit || 0;
+      const profit = soldPrice - purchasePrice;
+      const totalProfit = profit * soldItem.quantity;
+
+      return {
+        saleId: soldItem.saleId,
+        productId: soldItem.productId,
+        productName: soldItem.productName,
+        customerName: soldItem.customerName || 'N/A',
+        customerMobile: soldItem.customerMobile || 'N/A',
+        soldPrice,
+        purchasePrice,
+        profit,
+        quantity: soldItem.quantity,
+        totalProfit,
+        saleDate: soldItem.timestamp || soldItem.dateOfSale,
+        product
+      };
+    }).sort((a, b) => new Date(b.saleDate).getTime() - new Date(a.saleDate).getTime());
+
+    setProfitItems(items);
+  };
+
+  const applyDateFilter = () => {
+    let filtered = [...profitItems];
+
+    if (filterType === 'month' && dateFilter.selectedMonth && dateFilter.selectedYear) {
+      const targetMonth = parseInt(dateFilter.selectedMonth);
+      const targetYear = parseInt(dateFilter.selectedYear);
+      
+      filtered = profitItems.filter(item => {
+        const saleDate = new Date(item.saleDate);
+        return saleDate.getMonth() + 1 === targetMonth && saleDate.getFullYear() === targetYear;
+      });
+    } else if (filterType === 'custom' && dateFilter.startDate && dateFilter.endDate) {
+      const startDate = new Date(dateFilter.startDate);
+      const endDate = new Date(dateFilter.endDate);
+      endDate.setHours(23, 59, 59, 999); // Include the entire end date
+      
+      filtered = profitItems.filter(item => {
+        const saleDate = new Date(item.saleDate);
+        return saleDate >= startDate && saleDate <= endDate;
+      });
+    }
+
+    setFilteredProfitItems(filtered);
+  };
+
+  const resetFilters = () => {
+    setDateFilter({
+      startDate: '',
+      endDate: '',
+      selectedMonth: '',
+      selectedYear: new Date().getFullYear().toString()
+    });
+    setFilterType('all');
+  };
+
+  const getMonthOptions = () => {
+    const months = [
+      { value: '1', label: 'January' },
+      { value: '2', label: 'February' },
+      { value: '3', label: 'March' },
+      { value: '4', label: 'April' },
+      { value: '5', label: 'May' },
+      { value: '6', label: 'June' },
+      { value: '7', label: 'July' },
+      { value: '8', label: 'August' },
+      { value: '9', label: 'September' },
+      { value: '10', label: 'October' },
+      { value: '11', label: 'November' },
+      { value: '12', label: 'December' }
+    ];
+    return months;
+  };
+
+  const getYearOptions = () => {
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    for (let year = currentYear - 5; year <= currentYear + 1; year++) {
+      years.push(year.toString());
+    }
+    return years;
+  };
+
+  // Use filtered items instead of original items
+  const displayItems = filterType === 'all' ? profitItems : filteredProfitItems;
+  const totalFilteredProfit = displayItems.reduce((sum, item) => sum + item.totalProfit, 0);
+  const recentFilteredItems = displayItems.slice(0, 10);
+
+  // Update pagination to use filtered items
+  const totalFilteredPages = Math.ceil(displayItems.length / itemsPerPage);
+  const paginatedFilteredItems = displayItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const handleProductClick = (item: ProfitItem) => {
+    setSelectedProfitItem(item);
+    setShowDetailModal(true);
+  };
+
+  const convertProfitItemToSaleItems = (item: ProfitItem): SaleItem[] => {
+    if (!item.product) return [];
+    
+    return [{
+      product: item.product,
+      quantity: item.quantity,
+      totalPrice: item.soldPrice * item.quantity
+    }];
+  };
+
+  const getCustomerDetails = (item: ProfitItem): CustomerDetails | undefined => {
+    if (item.customerName && item.customerName !== 'N/A') {
+      // Try to find the original sold product to get complete customer details
+      const soldProduct = soldProducts.find(sp => sp.saleId === item.saleId);
+      
+      return {
+        name: item.customerName,
+        mobile: item.customerMobile || soldProduct?.customerMobile || '',
+        email: soldProduct?.customerEmail || '',
+        address: soldProduct?.customerAddress || ''
+      };
+    }
+    return undefined;
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalFilteredPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
+  const goToPage = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  // Generate page numbers for pagination
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisiblePages = 5;
+    
+    if (totalFilteredPages <= maxVisiblePages) {
+      for (let i = 1; i <= totalFilteredPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      const start = Math.max(1, currentPage - 2);
+      const end = Math.min(totalFilteredPages, start + maxVisiblePages - 1);
+      
+      if (start > 1) {
+        pages.push(1);
+        if (start > 2) pages.push('...');
+      }
+      
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+      
+      if (end < totalFilteredPages) {
+        if (end < totalFilteredPages - 1) pages.push('...');
+        pages.push(totalFilteredPages);
+      }
+    }
+    
+    return pages;
+  };
+
+  if (profitItems.length === 0) {
+    return (
+      <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-2xl p-6 shadow-lg shadow-green-500/10">
+        <h3 className="text-xl font-bold text-white mb-4 flex items-center">
+          <TrendingUp className="w-5 h-5 mr-2 text-green-400" />
+          Profit Analysis
+        </h3>
+        <div className="text-center py-8">
+          <DollarSign className="w-16 h-16 text-slate-400 mx-auto mb-4" />
+          <p className="text-slate-400">No sales data available for profit analysis</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Profit Analysis Section */}
+      {/* Main Profit Analysis Card */}
+      <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-2xl p-6 shadow-lg shadow-green-500/10">
+        {/* Profit Analysis Filter */}
+        <div className='flex items-center justify-between mb-4'>
+          <h2 className="text-2xl font-bold text-white">Profit Analysis Filter</h2>
+          {filterType !== 'all' && (
+            <button
+              onClick={resetFilters}
+              className="flex items-center space-x-2 px-4 py-2 bg-slate-700/50 hover:bg-slate-700/70 text-white rounded-lg transition-all duration-300"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Reset Filters</span>
+            </button>
+          )}
+        </div>
+
+        {/* Filter Controls */}
+        <div className="bg-slate-800/30 rounded-xl p-4 mb-6 border border-slate-700/30">
+          <div className="flex items-center space-x-4 mb-4">
+            <Filter className="w-5 h-5 text-blue-400" />
+            <h3 className="text-lg font-semibold text-white">Filter Options</h3>
+          </div>
+
+          {/* Filter Type Selection */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <button
+              onClick={() => setFilterType('all')}
+              className={`p-3 rounded-lg border transition-all duration-300 ${
+                filterType === 'all'
+                  ? 'bg-green-500/20 border-green-500/50 text-green-400'
+                  : 'bg-slate-700/30 border-slate-600/50 text-slate-300 hover:bg-slate-700/50'
+              }`}
+            >
+              <div className="text-center">
+                <p className="font-medium">All Time</p>
+                <p className="text-xs opacity-80">View all profits</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setFilterType('month')}
+              className={`p-3 rounded-lg border transition-all duration-300 ${
+                filterType === 'month'
+                  ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
+                  : 'bg-slate-700/30 border-slate-600/50 text-slate-300 hover:bg-slate-700/50'
+              }`}
+            >
+              <div className="text-center">
+                <p className="font-medium">Monthly</p>
+                <p className="text-xs opacity-80">Filter by month</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setFilterType('custom')}
+              className={`p-3 rounded-lg border transition-all duration-300 ${
+                filterType === 'custom'
+                  ? 'bg-purple-500/20 border-purple-500/50 text-purple-400'
+                  : 'bg-slate-700/30 border-slate-600/50 text-slate-300 hover:bg-slate-700/50'
+              }`}
+            >
+              <div className="text-center">
+                <p className="font-medium">Custom Range</p>
+                <p className="text-xs opacity-80">Select date range</p>
+              </div>
+            </button>
+          </div>
+
+          {/* Month Filter Controls */}
+          {filterType === 'month' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-slate-400 text-sm mb-2">Select Month</label>
+                <select
+                  value={dateFilter.selectedMonth}
+                  onChange={(e) => setDateFilter(prev => ({ ...prev, selectedMonth: e.target.value }))}
+                  className="w-full px-4 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg text-white focus:outline-none focus:border-blue-500/50"
+                >
+                  <option value="">Select Month</option>
+                  {getMonthOptions().map(month => (
+                    <option key={month.value} value={month.value}>{month.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 text-sm mb-2">Select Year</label>
+                <select
+                  value={dateFilter.selectedYear}
+                  onChange={(e) => setDateFilter(prev => ({ ...prev, selectedYear: e.target.value }))}
+                  className="w-full px-4 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg text-white focus:outline-none focus:border-blue-500/50"
+                >
+                  {getYearOptions().map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Custom Date Range Controls */}
+          {filterType === 'custom' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-slate-400 text-sm mb-2">Start Date</label>
+                <input
+                  type="date"
+                  value={dateFilter.startDate}
+                  onChange={(e) => setDateFilter(prev => ({ ...prev, startDate: e.target.value }))}
+                  className="w-full px-4 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg text-white focus:outline-none focus:border-purple-500/50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 text-sm mb-2">End Date</label>
+                <input
+                  type="date"
+                  value={dateFilter.endDate}
+                  onChange={(e) => setDateFilter(prev => ({ ...prev, endDate: e.target.value }))}
+                  className="w-full px-4 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg text-white focus:outline-none focus:border-purple-500/50"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Filter Summary */}
+          {filterType !== 'all' && (
+            <div className="mt-4 p-3 bg-slate-900/30 rounded-lg border border-slate-600/30">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Calendar className="w-4 h-4 text-blue-400" />
+                  <span className="text-slate-300 text-sm">
+                    {filterType === 'month' && dateFilter.selectedMonth && dateFilter.selectedYear
+                      ? `${getMonthOptions().find(m => m.value === dateFilter.selectedMonth)?.label} ${dateFilter.selectedYear}`
+                      : filterType === 'custom' && dateFilter.startDate && dateFilter.endDate
+                      ? `${dateFilter.startDate} to ${dateFilter.endDate}`
+                      : 'Select filter criteria'
+                    }
+                  </span>
+                </div>
+                <div className="text-right">
+                  <p className="text-slate-400 text-xs">Filtered Results</p>
+                  <p className="text-white font-medium">{displayItems.length} sales</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-bold text-white flex items-center">
+            <TrendingUp className="w-5 h-5 mr-2 text-green-400" />
+            Profit Analysis ({displayItems.length} sales)
+            {filterType !== 'all' && (
+              <span className="ml-2 px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded-full">
+                Filtered
+              </span>
+            )}
+          </h3>
+          {/* Total profit */}
+          <div className="text-right">
+            <p className="text-slate-400 text-sm">
+              {filterType === 'all' ? 'Total Profit' : 'Filtered Profit'}
+            </p>
+            <p className="text-2xl font-bold text-green-400">৳{totalFilteredProfit.toFixed(2)}</p>
+          </div>
+        </div>
+
+        {/* Additional Statistics */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-slate-800/30 rounded-xl p-4 text-center">
+            <p className="text-slate-400 text-sm">Total Sales</p>
+            <p className="text-2xl font-bold text-white">{displayItems.length}</p>
+          </div>
+          <div className="bg-slate-800/30 rounded-xl p-4 text-center">
+            <p className="text-slate-400 text-sm">Total Revenue</p>
+            <p className="text-2xl font-bold text-blue-400">
+              ৳{displayItems.reduce((sum, item) => sum + (item.soldPrice * item.quantity), 0).toFixed(2)}
+            </p>
+          </div>
+          <div className="bg-slate-800/30 rounded-xl p-4 text-center">
+            <p className="text-slate-400 text-sm">Total Cost</p>
+            <p className="text-2xl font-bold text-orange-400">
+              ৳{displayItems.reduce((sum, item) => sum + (item.purchasePrice * item.quantity), 0).toFixed(2)}
+            </p>
+          </div>
+          <div className="bg-slate-800/30 rounded-xl p-4 text-center">
+            <p className="text-slate-400 text-sm">Average Profit</p>
+            <p className="text-2xl font-bold text-green-400">
+              ৳{displayItems.length > 0 ? (totalFilteredProfit / displayItems.length).toFixed(2) : '0.00'}
+            </p>
+          </div>
+        </div>
+
+        {displayItems.length === 0 ? (
+          <div className="text-center py-8">
+            <Calendar className="w-16 h-16 text-slate-400 mx-auto mb-4" />
+            <p className="text-slate-400">No sales found for the selected period</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {recentFilteredItems.map((item) => (
+              <div
+                key={item.saleId}
+                className="bg-slate-800/30 rounded-xl p-4 hover:bg-slate-800/50 transition-all duration-300 cursor-pointer border border-slate-700/30"
+                onClick={() => handleProductClick(item)}
+              >
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-center">
+                  <div className="md:col-span-2">
+                    <h4 className="text-white font-medium">{item.productName}</h4>
+                    <p className="text-cyan-400 text-sm font-mono">ID: {item.productId}</p>
+                  </div>
+                  
+                  <div>
+                    <p className="text-slate-400 text-xs">Customer</p>
+                    <p className="text-white text-sm">{item.customerName}</p>
+                    <p className="text-slate-300 text-xs">{item.customerMobile}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-slate-400 text-xs">Sale Price</p>
+                    <p className="text-white font-medium">৳{item.soldPrice.toFixed(2)}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-slate-400 text-xs">Purchase Price</p>
+                    <p className="text-white font-medium">৳{item.purchasePrice.toFixed(2)}</p>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-slate-400 text-xs">Profit</p>
+                    <p className={`text-lg font-bold ${item.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      ৳{item.totalProfit.toFixed(2)}
+                    </p>
+                    <p className="text-slate-300 text-xs">Qty: {item.quantity}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {displayItems.length > 10 && (
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => {
+                setShowFullDataModal(true);
+                setCurrentPage(1); // Reset to first page when opening modal
+              }}
+              className="flex items-center space-x-2 px-8 py-4 bg-gradient-to-r from-green-400 to-emerald-500 hover:from-green-500 hover:to-emerald-600 text-slate-900 rounded-xl font-bold transition-all duration-300 hover:scale-105 shadow-lg shadow-green-500/25 mx-auto"
+            >
+              <Eye className="w-6 h-6" />
+              <span>View All Data ({displayItems.length} total sales)</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Product Detail Modal - unchanged */}
+      {showDetailModal && selectedProfitItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
+          <div className="bg-white/10 backdrop-blur-xl border border-green-500/20 rounded-2xl p-8 shadow-lg shadow-green-500/10 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-white">Profit Details</h2>
+              <button
+                onClick={() => setShowDetailModal(false)}
+                className="p-2 bg-red-500/20 hover:bg-red-500/40 text-red-400 rounded-lg border border-red-500/30 transition-all duration-300"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Product Image */}
+              <div className="space-y-4">
+                <div className="aspect-square bg-slate-800/30 rounded-xl overflow-hidden">
+                  {selectedProfitItem.product?.image ? (
+                    <img
+                      src={selectedProfitItem.product.image}
+                      alt={selectedProfitItem.productName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Package className="w-24 h-24 text-slate-400" />
+                    </div>
+                  )}
+                </div>
+                
+                {/* Download receipt section */}
+                <ReceiptButton
+                  salesItems={convertProfitItemToSaleItems(selectedProfitItem)}
+                  receiptNumber={`PROFIT-${selectedProfitItem.saleId}`}
+                  cashierName="System Admin"
+                  customerDetails={getCustomerDetails(selectedProfitItem)}
+                  type="download"
+                  className="w-full flex items-center justify-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-400 to-indigo-500 hover:from-blue-500 hover:to-indigo-600 text-white rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg shadow-blue-500/25"
+                >
+                  <Download className="w-5 h-5" />
+                  <span>Download Receipt</span>
+                </ReceiptButton>
+              </div>
+
+              {/* Product Details */}
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-2">{selectedProfitItem.productName}</h3>
+                  <p className="text-cyan-400 font-mono">ID: {selectedProfitItem.productId}</p>
+                </div>
+
+                {/* Customer Information */}
+                <div className="bg-slate-800/30 rounded-xl p-4">
+                  <h4 className="text-white font-semibold mb-3 flex items-center">
+                    <User className="w-4 h-4 mr-2 text-blue-400" />
+                    Customer Information
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Name:</span>
+                      <span className="text-white">{selectedProfitItem.customerName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Mobile:</span>
+                      <span className="text-white">{selectedProfitItem.customerMobile}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Financial Details */}
+                <div className="bg-slate-800/30 rounded-xl p-4">
+                  <h4 className="text-white font-semibold mb-3 flex items-center">
+                    <DollarSign className="w-4 h-4 mr-2 text-green-400" />
+                    Financial Details
+                  </h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Purchase Price:</span>
+                      <span className="text-white">৳{selectedProfitItem.purchasePrice.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Sale Price:</span>
+                      <span className="text-white">৳{selectedProfitItem.soldPrice.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Quantity:</span>
+                      <span className="text-white">{selectedProfitItem.quantity}</span>
+                    </div>
+                    <div className="border-t border-slate-700/50 pt-3">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Profit per Unit:</span>
+                        <span className={`font-semibold ${selectedProfitItem.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          ৳{selectedProfitItem.profit.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400 font-semibold">Total Profit:</span>
+                        <span className={`text-xl font-bold ${selectedProfitItem.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          ৳{selectedProfitItem.totalProfit.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Product Description */}
+                {selectedProfitItem.product?.description && (
+                  <div className="bg-slate-800/30 rounded-xl p-4">
+                    <h4 className="text-white font-semibold mb-3">Product Description</h4>
+                    <p className="text-slate-300">{selectedProfitItem.product.description}</p>
+                  </div>
+                )}
+
+                {/* Sale Date */}
+                <div className="bg-slate-800/30 rounded-xl p-4">
+                  <h4 className="text-white font-semibold mb-2">Sale Information</h4>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Sale Date:</span>
+                    <span className="text-white">
+                      {new Date(selectedProfitItem.saleDate).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full Data Modal - updated for filtered data */}
+      {showFullDataModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
+          <div className="bg-white/10 backdrop-blur-xl border border-green-500/20 rounded-2xl shadow-lg shadow-green-500/10 max-w-7xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-8">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between mb-6 border-b border-slate-700/50 pb-4">
+                <div>
+                  <h2 className="text-3xl font-bold text-white">
+                    {filterType === 'all' ? 'Complete Profit Analysis' : 'Filtered Profit Analysis'}
+                  </h2>
+                  <p className="text-slate-400">
+                    {filterType !== 'all' ? 'Filtered: ' : 'All '}
+                    {displayItems.length} sales records
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowFullDataModal(false)}
+                  className="p-3 bg-red-500/20 hover:bg-red-500/40 text-red-400 rounded-xl border border-red-500/30 transition-all duration-300"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Data Table */}
+              <div className="space-y-4 mb-6">
+                {paginatedFilteredItems.map((item) => (
+                  <div
+                    key={item.saleId}
+                    className="bg-slate-800/30 rounded-xl p-4 hover:bg-slate-800/50 transition-all duration-300 cursor-pointer border border-slate-700/30"
+                    onClick={() => handleProductClick(item)}
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-7 gap-4 items-center">
+                      <div className="md:col-span-2">
+                        <h4 className="text-white font-medium">{item.productName}</h4>
+                        <p className="text-cyan-400 text-sm font-mono">ID: {item.productId}</p>
+                      </div>
+                      
+                      <div>
+                        <p className="text-slate-400 text-xs">Customer</p>
+                        <p className="text-white text-sm truncate">{item.customerName}</p>
+                        <p className="text-slate-300 text-xs truncate">{item.customerMobile}</p>
+                      </div>
+
+                      <div>
+                        <p className="text-slate-400 text-xs">Sale Price</p>
+                        <p className="text-white font-medium">৳{item.soldPrice.toFixed(2)}</p>
+                      </div>
+
+                      <div>
+                        <p className="text-slate-400 text-xs">Purchase Price</p>
+                        <p className="text-white font-medium">৳{item.purchasePrice.toFixed(2)}</p>
+                      </div>
+
+                      <div>
+                        <p className="text-slate-400 text-xs">Quantity</p>
+                        <p className="text-white font-medium">{item.quantity}</p>
+                      </div>
+
+                      <div className="text-right">
+                        <p className="text-slate-400 text-xs">Total Profit</p>
+                        <p className={`text-xl font-bold ${item.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          ৳{item.totalProfit.toFixed(2)}
+                        </p>
+                        <p className="text-slate-300 text-xs">
+                          {new Date(item.saleDate).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Pagination */}
+              {totalFilteredPages > 1 && (
+                <div className="flex items-center justify-center space-x-4 py-4 border-t border-slate-700/50">
+                  {/* Previous Button */}
+                  <button
+                    onClick={handlePrevPage}
+                    disabled={currentPage === 1}
+                    className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-300 ${
+                      currentPage === 1
+                        ? 'bg-slate-700/30 text-slate-500 cursor-not-allowed'
+                        : 'bg-slate-700/50 hover:bg-slate-700/70 text-white'
+                    }`}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Previous</span>
+                  </button>
+
+                  {/* Page Numbers */}
+                  <div className="flex space-x-2">
+                    {getPageNumbers().map((page, index) => (
+                      <button
+                        key={index}
+                        onClick={() => typeof page === 'number' ? goToPage(page) : undefined}
+                        disabled={typeof page !== 'number'}
+                        className={`px-4 py-2 rounded-lg transition-all duration-300 ${
+                          page === currentPage
+                            ? 'bg-green-500 text-white font-bold'
+                            : typeof page === 'number'
+                            ? 'bg-slate-700/50 hover:bg-slate-700/70 text-white'
+                            : 'text-slate-500 cursor-default'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Next Button */}
+                  <button
+                    onClick={handleNextPage}
+                    disabled={currentPage === totalFilteredPages}
+                    className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-300 ${
+                      currentPage === totalFilteredPages
+                        ? 'bg-slate-700/30 text-slate-500 cursor-not-allowed'
+                        : 'bg-slate-700/50 hover:bg-slate-700/70 text-white'
+                    }`}
+                  >
+                    <span>Next</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Page Info */}
+              <div className="text-center mt-4">
+                <p className="text-slate-400 text-sm">
+                  Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, displayItems.length)} of {displayItems.length} sales
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+export default Profit;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+OLD ------- 
+
+
+
+import React, { useState, useEffect } from 'react';
+import { TrendingUp, Download, X, DollarSign, Package, User, Phone, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
+import ReceiptButton from './ReceiptButton';
+import { SaleItem, CustomerDetails } from '../types';
+
+interface ProfitItem {
+  saleId: string;
+  productId: string;
+  productName: string;
+  customerName: string;
+  customerMobile: string;
+  soldPrice: number;
+  purchasePrice: number;
+  profit: number;
+  quantity: number;
+  totalProfit: number;
+  saleDate: string;
+  product?: any; // Full product details
+}
+
+interface ProfitProps {
+  soldProducts: any[];
+  products: any[];
+  purchases: any[];
+}
+
+const Profit: React.FC<ProfitProps> = ({ soldProducts, products, purchases }) => {
+  const [profitItems, setProfitItems] = useState<ProfitItem[]>([]);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedProfitItem, setSelectedProfitItem] = useState<ProfitItem | null>(null);
+  const [showFullDataModal, setShowFullDataModal] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
+
+  useEffect(() => {
+    calculateProfitItems();
+  }, [soldProducts, products, purchases]);
+
+  const calculateProfitItems = () => {
+    const items: ProfitItem[] = soldProducts.map(soldItem => {
+      const product = products.find(p => p.id === soldItem.productId);
+      
+      // Find the most recent purchase price for this product from purchases.json
+      const productPurchases = purchases
+        .filter(purchase => purchase.productID === soldItem.productId)
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      
+      // Use the buypricePerUnit from the most recent purchase, or fallback to product data
+      const purchasePrice = productPurchases.length > 0 
+        ? productPurchases[0].buypricePerUnit 
+        : (product?.buypricePerUnit || 0);
+      
+      const soldPrice = soldItem.sellpricePerUnit || 0;
+      const profit = soldPrice - purchasePrice;
+      const totalProfit = profit * soldItem.quantity;
+
+      return {
+        saleId: soldItem.saleId,
+        productId: soldItem.productId,
+        productName: soldItem.productName,
+        customerName: soldItem.customerName || 'N/A',
+        customerMobile: soldItem.customerMobile || 'N/A',
+        soldPrice,
+        purchasePrice,
+        profit,
+        quantity: soldItem.quantity,
+        totalProfit,
+        saleDate: soldItem.timestamp || soldItem.dateOfSale,
+        product
+      };
+    }).sort((a, b) => new Date(b.saleDate).getTime() - new Date(a.saleDate).getTime());
+
+    setProfitItems(items);
+  };
+
+  const totalProfit = profitItems.reduce((sum, item) => sum + item.totalProfit, 0);
+  
+  // Show only 10 recent items by default
+  const recentItems = profitItems.slice(0, 10);
+  
+  // Pagination for full data modal
+  const totalPages = Math.ceil(profitItems.length / itemsPerPage);
+  const paginatedItems = profitItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const handleProductClick = (item: ProfitItem) => {
+    setSelectedProfitItem(item);
+    setShowDetailModal(true);
+  };
+
+  const convertProfitItemToSaleItems = (item: ProfitItem): SaleItem[] => {
+    if (!item.product) return [];
+    
+    return [{
+      product: item.product,
+      quantity: item.quantity,
+      totalPrice: item.soldPrice * item.quantity
+    }];
+  };
+
+  const getCustomerDetails = (item: ProfitItem): CustomerDetails | undefined => {
+    if (item.customerName && item.customerName !== 'N/A') {
+      // Try to find the original sold product to get complete customer details
+      const soldProduct = soldProducts.find(sp => sp.saleId === item.saleId);
+      
+      return {
+        name: item.customerName,
+        mobile: item.customerMobile || soldProduct?.customerMobile || '',
+        email: soldProduct?.customerEmail || '',
+        address: soldProduct?.customerAddress || ''
+      };
+    }
+    return undefined;
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
+  const goToPage = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  // Generate page numbers for pagination
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisiblePages = 5;
+    
+    if (totalPages <= maxVisiblePages) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      const start = Math.max(1, currentPage - 2);
+      const end = Math.min(totalPages, start + maxVisiblePages - 1);
+      
+      if (start > 1) {
+        pages.push(1);
+        if (start > 2) pages.push('...');
+      }
+      
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+      
+      if (end < totalPages) {
+        if (end < totalPages - 1) pages.push('...');
+        pages.push(totalPages);
+      }
+    }
+    
+    return pages;
+  };
+
+  if (profitItems.length === 0) {
+    return (
+      <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-2xl p-6 shadow-lg shadow-green-500/10">
+        
+        <h3 className="text-xl font-bold text-white mb-4 flex items-center">
+          <TrendingUp className="w-5 h-5 mr-2 text-green-400" />
+          Profit Analysis
+        </h3>
+        <div className="text-center py-8">
+          <DollarSign className="w-16 h-16 text-slate-400 mx-auto mb-4" />
+          <p className="text-slate-400">No sales data available for profit analysis</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Profit Analysis Section */}
+      {/* Main Profit Analysis Card */}
+      <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-2xl p-6 shadow-lg shadow-green-500/10">
+      {/* profit analysis filter */}
+      <div className='flex items-center justify-between mb-4'>
+          <h2 className="text-2xl font-bold text-white">Profit Analysis filter</h2>
+      </div>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-bold text-white flex items-center">
+            <TrendingUp className="w-5 h-5 mr-2 text-green-400" />
+            Profit Analysis ({profitItems.length} sales)
+          </h3>
+          {/* Total purse */}
+          <div className="text-right">
+            <p className="text-slate-400 text-sm">Total Profit</p>
+            <p className="text-2xl font-bold text-green-400">৳{totalProfit.toFixed(2)}</p>
+          </div>
+        </div>
+
+        {/* Additional Statistics */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-slate-800/30 rounded-xl p-4 text-center">
+            <p className="text-slate-400 text-sm">Total Sales</p>
+            <p className="text-2xl font-bold text-white">{profitItems.length}</p>
+          </div>
+          <div className="bg-slate-800/30 rounded-xl p-4 text-center">
+            <p className="text-slate-400 text-sm">Total Revenue</p>
+            <p className="text-2xl font-bold text-blue-400">
+              ৳{profitItems.reduce((sum, item) => sum + (item.soldPrice * item.quantity), 0).toFixed(2)}
+            </p>
+          </div>
+          <div className="bg-slate-800/30 rounded-xl p-4 text-center">
+            <p className="text-slate-400 text-sm">Total Cost</p>
+            <p className="text-2xl font-bold text-orange-400">
+              ৳{profitItems.reduce((sum, item) => sum + (item.purchasePrice * item.quantity), 0).toFixed(2)}
+            </p>
+          </div>
+          <div className="bg-slate-800/30 rounded-xl p-4 text-center">
+            <p className="text-slate-400 text-sm">Average Profit</p>
+            <p className="text-2xl font-bold text-green-400">
+              ৳{profitItems.length > 0 ? (totalProfit / profitItems.length).toFixed(2) : '0.00'}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {recentItems.map((item) => (
+            <div
+              key={item.saleId}
+              className="bg-slate-800/30 rounded-xl p-4 hover:bg-slate-800/50 transition-all duration-300 cursor-pointer border border-slate-700/30"
+              onClick={() => handleProductClick(item)}
+            >
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-center">
+                <div className="md:col-span-2">
+                  <h4 className="text-white font-medium">{item.productName}</h4>
+                  <p className="text-cyan-400 text-sm font-mono">ID: {item.productId}</p>
+                </div>
+                
+                <div>
+                  <p className="text-slate-400 text-xs">Customer</p>
+                  <p className="text-white text-sm">{item.customerName}</p>
+                  <p className="text-slate-300 text-xs">{item.customerMobile}</p>
+                </div>
+
+                <div>
+                  <p className="text-slate-400 text-xs">Sale Price</p>
+                  <p className="text-white font-medium">৳{item.soldPrice.toFixed(2)}</p>
+                </div>
+
+                <div>
+                  <p className="text-slate-400 text-xs">Purchase Price</p>
+                  <p className="text-white font-medium">৳{item.purchasePrice.toFixed(2)}</p>
+                </div>
+
+                <div className="text-right">
+                  <p className="text-slate-400 text-xs">Profit</p>
+                  <p className={`text-lg font-bold ${item.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    ৳{item.totalProfit.toFixed(2)}
+                  </p>
+                  <p className="text-slate-300 text-xs">Qty: {item.quantity}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {profitItems.length > 10 && (
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => {
+                setShowFullDataModal(true);
+                setCurrentPage(1); // Reset to first page when opening modal
+              }}
+              className="flex items-center space-x-2 px-8 py-4 bg-gradient-to-r from-green-400 to-emerald-500 hover:from-green-500 hover:to-emerald-600 text-slate-900 rounded-xl font-bold transition-all duration-300 hover:scale-105 shadow-lg shadow-green-500/25 mx-auto"
+            >
+              <Eye className="w-6 h-6" />
+              <span>View All Data ({profitItems.length} total sales)</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Product Detail Modal */}
+      {showDetailModal && selectedProfitItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
+          <div className="bg-white/10 backdrop-blur-xl border border-green-500/20 rounded-2xl p-8 shadow-lg shadow-green-500/10 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-white">Profit Details</h2>
+              <button
+                onClick={() => setShowDetailModal(false)}
+                className="p-2 bg-red-500/20 hover:bg-red-500/40 text-red-400 rounded-lg border border-red-500/30 transition-all duration-300"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Product Image */}
+              <div className="space-y-4">
+                <div className="aspect-square bg-slate-800/30 rounded-xl overflow-hidden">
+                  {selectedProfitItem.product?.image ? (
+                    <img
+                      src={selectedProfitItem.product.image}
+                      alt={selectedProfitItem.productName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Package className="w-24 h-24 text-slate-400" />
+                    </div>
+                  )}
+                </div>
+                
+                {/* Download receipt section */}
+                <ReceiptButton
+                  salesItems={convertProfitItemToSaleItems(selectedProfitItem)}
+                  receiptNumber={`PROFIT-${selectedProfitItem.saleId}`}
+                  cashierName="System Admin"
+                  customerDetails={getCustomerDetails(selectedProfitItem)}
+                  type="download"
+                  className="w-full flex items-center justify-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-400 to-indigo-500 hover:from-blue-500 hover:to-indigo-600 text-white rounded-xl font-semibold transition-all duration-300 hover:scale-105 shadow-lg shadow-blue-500/25"
+                >
+                  <Download className="w-5 h-5" />
+                  <span>Download Receipt</span>
+                </ReceiptButton>
+              </div>
+
+              {/* Product Details */}
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-2">{selectedProfitItem.productName}</h3>
+                  <p className="text-cyan-400 font-mono">ID: {selectedProfitItem.productId}</p>
+                </div>
+
+                {/* Customer Information */}
+                <div className="bg-slate-800/30 rounded-xl p-4">
+                  <h4 className="text-white font-semibold mb-3 flex items-center">
+                    <User className="w-4 h-4 mr-2 text-blue-400" />
+                    Customer Information
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Name:</span>
+                      <span className="text-white">{selectedProfitItem.customerName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Mobile:</span>
+                      <span className="text-white">{selectedProfitItem.customerMobile}</span>
+                    </div>
+                  </div>
+                </div>
+
+                
+
+                {/* Financial Details */}
+                <div className="bg-slate-800/30 rounded-xl p-4">
+                  <h4 className="text-white font-semibold mb-3 flex items-center">
+                    <DollarSign className="w-4 h-4 mr-2 text-green-400" />
+                    Financial Details
+                  </h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Purchase Price:</span>
+                      <span className="text-white">৳{selectedProfitItem.purchasePrice.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Sale Price:</span>
+                      <span className="text-white">৳{selectedProfitItem.soldPrice.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Quantity:</span>
+                      <span className="text-white">{selectedProfitItem.quantity}</span>
+                    </div>
+                    <div className="border-t border-slate-700/50 pt-3">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Profit per Unit:</span>
+                        <span className={`font-semibold ${selectedProfitItem.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          ৳{selectedProfitItem.profit.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400 font-semibold">Total Profit:</span>
+                        <span className={`text-xl font-bold ${selectedProfitItem.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          ৳{selectedProfitItem.totalProfit.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Product Description */}
+                {selectedProfitItem.product?.description && (
+                  <div className="bg-slate-800/30 rounded-xl p-4">
+                    <h4 className="text-white font-semibold mb-3">Product Description</h4>
+                    <p className="text-slate-300">{selectedProfitItem.product.description}</p>
+                  </div>
+                )}
+
+                {/* Sale Date */}
+                <div className="bg-slate-800/30 rounded-xl p-4">
+                  <h4 className="text-white font-semibold mb-2">Sale Information</h4>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Sale Date:</span>
+                    <span className="text-white">
+                      {new Date(selectedProfitItem.saleDate).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full Data Modal */}
+      {showFullDataModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
+          <div className="bg-white/10 backdrop-blur-xl border border-green-500/20 rounded-2xl shadow-lg shadow-green-500/10 max-w-7xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-8">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between mb-6 border-b border-slate-700/50 pb-4">
+                <div>
+                  <h2 className="text-3xl font-bold text-white">Complete Profit Analysis</h2>
+                  <p className="text-slate-400">All {profitItems.length} sales records</p>
+                </div>
+                <button
+                  onClick={() => setShowFullDataModal(false)}
+                  className="p-3 bg-red-500/20 hover:bg-red-500/40 text-red-400 rounded-xl border border-red-500/30 transition-all duration-300"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Data Table */}
+              <div className="space-y-4 mb-6">
+                {paginatedItems.map((item) => (
+                  <div
+                    key={item.saleId}
+                    className="bg-slate-800/30 rounded-xl p-4 hover:bg-slate-800/50 transition-all duration-300 cursor-pointer border border-slate-700/30"
+                    onClick={() => handleProductClick(item)}
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-7 gap-4 items-center">
+                      <div className="md:col-span-2">
+                        <h4 className="text-white font-medium">{item.productName}</h4>
+                        <p className="text-cyan-400 text-sm font-mono">ID: {item.productId}</p>
+                      </div>
+                      
+                      <div>
+                        <p className="text-slate-400 text-xs">Customer</p>
+                        <p className="text-white text-sm truncate">{item.customerName}</p>
+                        <p className="text-slate-300 text-xs truncate">{item.customerMobile}</p>
+                      </div>
+
+                      <div>
+                        <p className="text-slate-400 text-xs">Sale Price</p>
+                        <p className="text-white font-medium">৳{item.soldPrice.toFixed(2)}</p>
+                      </div>
+
+                      <div>
+                        <p className="text-slate-400 text-xs">Purchase Price</p>
+                        <p className="text-white font-medium">৳{item.purchasePrice.toFixed(2)}</p>
+                      </div>
+
+                      <div>
+                        <p className="text-slate-400 text-xs">Quantity</p>
+                        <p className="text-white font-medium">{item.quantity}</p>
+                      </div>
+
+                      <div className="text-right">
+                        <p className="text-slate-400 text-xs">Total Profit</p>
+                        <p className={`text-xl font-bold ${item.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          ৳{item.totalProfit.toFixed(2)}
+                        </p>
+                        <p className="text-slate-300 text-xs">
+                          {new Date(item.saleDate).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center space-x-4 py-4 border-t border-slate-700/50">
+                  {/* Previous Button */}
+                  <button
+                    onClick={handlePrevPage}
+                    disabled={currentPage === 1}
+                    className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-300 ${
+                      currentPage === 1
+                        ? 'bg-slate-700/30 text-slate-500 cursor-not-allowed'
+                        : 'bg-slate-700/50 hover:bg-slate-700/70 text-white'
+                    }`}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Previous</span>
+                  </button>
+
+                  {/* Page Numbers */}
+                  <div className="flex space-x-2">
+                    {getPageNumbers().map((page, index) => (
+                      <button
+                        key={index}
+                        onClick={() => typeof page === 'number' ? goToPage(page) : undefined}
+                        disabled={typeof page !== 'number'}
+                        className={`px-4 py-2 rounded-lg transition-all duration-300 ${
+                          page === currentPage
+                            ? 'bg-green-500 text-white font-bold'
+                            : typeof page === 'number'
+                            ? 'bg-slate-700/50 hover:bg-slate-700/70 text-white'
+                            : 'text-slate-500 cursor-default'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Next Button */}
+                  <button
+                    onClick={handleNextPage}
+                    disabled={currentPage === totalPages}
+                    className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-300 ${
+                      currentPage === totalPages
+                        ? 'bg-slate-700/30 text-slate-500 cursor-not-allowed'
+                        : 'bg-slate-700/50 hover:bg-slate-700/70 text-white'
+                    }`}
+                  >
+                    <span>Next</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Page Info */}
+              <div className="text-center mt-4">
+                <p className="text-slate-400 text-sm">
+                  Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, profitItems.length)} of {profitItems.length} sales
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+export default Profit;
